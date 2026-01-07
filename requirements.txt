@@ -1,0 +1,11 @@
+python-dotenv
+flask
+requests
+SpeechRecognition
+gTTS
+groq
+flask-login
+langcodes
+pandas
+pydub
+language_data
