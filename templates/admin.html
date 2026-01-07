@@ -5,218 +5,180 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin Dashboard - Voice Translator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: #f0f2f5;
-            min-height: 100vh;
-            padding: 20px;
+        .fade-in {
+            animation: fadeIn 0.5s ease-in;
         }
 
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-        }
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
 
-        .header {
-            background: white;
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 30px;
-        }
-
-        h1 {
-            color: #333;
-            margin: 0;
-        }
-
-        .btn {
-            padding: 10px 20px;
-            background: #667eea;
-            color: white;
-            text-decoration: none;
-            border-radius: 5px;
-            font-weight: bold;
-        }
-
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
-        }
-
-        .stat-card {
-            background: white;
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
-            text-align: center;
-        }
-
-        .stat-number {
-            font-size: 2.5em;
-            color: #667eea;
-            font-weight: bold;
-        }
-
-        .stat-label {
-            color: #666;
-            font-size: 1.1em;
-        }
-
-        .section {
-            background: white;
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
-            margin-bottom: 30px;
-        }
-
-        .section h2 {
-            margin-top: 0;
-            color: #333;
-            border-bottom: 2px solid #f0f0f0;
-            padding-bottom: 15px;
-            margin-bottom: 20px;
-        }
-
-        table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-
-        th,
-        td {
-            text-align: left;
-            padding: 12px;
-            border-bottom: 1px solid #eee;
-        }
-
-        th {
-            background-color: #f8f9fa;
-            color: #555;
-            font-weight: bold;
-        }
-
-        tr:hover {
-            background-color: #f5f5f5;
-        }
-
-        .role-badge {
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 0.85em;
-            font-weight: bold;
-        }
-
-        .role-admin {
-            background: #e3f2fd;
-            color: #1976d2;
-        }
-
-        .role-user {
-            background: #e8f5e9;
-            color: #2e7d32;
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
     </style>
 </head>
 
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>Admin Dashboard</h1>
-            <a href="/" class="btn">Back to App</a>
+<body class="bg-gray-50 min-h-screen font-sans text-gray-800">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+
+        <!-- Header -->
+        <div
+            class="bg-white rounded-xl shadow-lg p-6 mb-8 flex flex-col md:flex-row justify-between items-center fade-in">
+            <h1 class="text-3xl font-bold text-gray-800 mb-4 md:mb-0">Admin Dashboard</h1>
+            <a href="{{ url_for('main.index') }}"
+                class="px-6 py-2.5 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition-all duration-200 shadow-md hover:-translate-y-0.5 transform active:scale-95">
+                ← Back to App
+            </a>
         </div>
 
-        <div class="stats-grid">
-            <div class="stat-card">
-                <div class="stat-number">{{ stats|length }}</div>
-                <div class="stat-label">Total Users</div>
+        <!-- Stats Grid -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8 fade-in" style="animation-delay: 0.1s">
+            <div
+                class="bg-white p-6 rounded-xl shadow-lg border-l-4 border-indigo-500 hover:shadow-xl transition-shadow duration-300">
+                <div class="text-4xl font-bold text-indigo-600 mb-2">{{ stats|length }}</div>
+                <div class="text-gray-500 font-medium uppercase tracking-wide text-sm">Total Users</div>
             </div>
-            <div class="stat-card">
-                <div class="stat-number">{{ global_history|length }}</div>
-                <div class="stat-label">Total Translations</div>
+            <div
+                class="bg-white p-6 rounded-xl shadow-lg border-l-4 border-green-500 hover:shadow-xl transition-shadow duration-300">
+                <div class="text-4xl font-bold text-green-600 mb-2">{{ global_history|length }}</div>
+                <div class="text-gray-500 font-medium uppercase tracking-wide text-sm">Total Translations</div>
             </div>
         </div>
 
-        <div class="section">
-            <h2>User Statistics</h2>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Username</th>
-                        <th>Translations</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for stat in stats %}
-                    <tr>
-                        <td>{{ stat.username }}</td>
-                        <td>{{ stat.translation_count }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8 fade-in" style="animation-delay: 0.2s">
+
+            <!-- User Statistics -->
+            <div class="bg-white rounded-xl shadow-lg overflow-hidden">
+                <div class="px-6 py-4 border-b border-gray-100 bg-gray-50">
+                    <h2 class="text-xl font-bold text-gray-800">User Statistics</h2>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th
+                                    class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                                    Username</th>
+                                <th
+                                    class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                                    Translations</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-100">
+                            {% for stat in stats %}
+                            <tr class="hover:bg-gray-50 transition-colors">
+                                <td class="px-6 py-4 whitespace-nowrap font-medium text-gray-900">{{ stat.username }}
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-gray-600">{{ stat.translation_count }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- User Management -->
+            <div class="bg-white rounded-xl shadow-lg overflow-hidden">
+                <div class="px-6 py-4 border-b border-gray-100 bg-gray-50">
+                    <h2 class="text-xl font-bold text-gray-800">User Management</h2>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th
+                                    class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                                    ID</th>
+                                <th
+                                    class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                                    Username</th>
+                                <th
+                                    class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                                    Role</th>
+                                <th
+                                    class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                                    Joined</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-100">
+                            {% for user in users %}
+                            <tr class="hover:bg-gray-50 transition-colors">
+                                <td class="px-6 py-4 whitespace-nowrap text-gray-500">#{{ user.id }}</td>
+                                <td class="px-6 py-4 whitespace-nowrap font-medium text-gray-900">{{ user.username }}
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <span
+                                        class="px-2 py-1 text-xs font-bold leading-5 rounded-md uppercase {{ 'bg-indigo-100 text-indigo-800' if user.role == 'admin' else 'bg-green-100 text-green-800' }}">
+                                        {{ user.role }}
+                                    </span>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ user.created_at }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
 
-        <div class="section">
-            <h2>User Management</h2>
-            <table>
-                <thead>
-                    <tr>
-                        <th>ID</th>
-                        <th>Username</th>
-                        <th>Role</th>
-                        <th>Joined</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for user in users %}
-                    <tr>
-                        <td>#{{ user.id }}</td>
-                        <td>{{ user.username }}</td>
-                        <td>
-                            <span class="role-badge role-{{ user.role }}">
-                                {{ user.role|upper }}
-                            </span>
-                        </td>
-                        <td>{{ user.created_at }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+        <!-- Global History -->
+        <div class="bg-white rounded-xl shadow-lg overflow-hidden fade-in" style="animation-delay: 0.3s">
+            <div class="px-6 py-4 border-b border-gray-100 bg-gray-50">
+                <h2 class="text-xl font-bold text-gray-800">Global Translation History</h2>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th
+                                class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                                Time</th>
+                            <th
+                                class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                                User</th>
+                            <th
+                                class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                                Lang</th>
+                            <th
+                                class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                                Original</th>
+                            <th
+                                class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                                Translated</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-100">
+                        {% for item in global_history %}
+                        <tr class="hover:bg-gray-50 transition-colors">
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ item.timestamp }}</td>
+                            <td class="px-6 py-4 whitespace-nowrap font-medium text-indigo-600">{{ item.username }}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-800 font-medium">
+                                <span class="bg-gray-100 px-2 py-1 rounded">{{ item.source_lang }}</span>
+                                <span class="text-gray-400 mx-1">→</span>
+                                <span class="bg-gray-100 px-2 py-1 rounded">{{ item.target_lang }}</span>
+                            </td>
+                            <td class="px-6 py-4 text-sm text-gray-600 max-w-xs truncate"
+                                title="{{ item.original_text }}">
+                                {{ item.original_text }}
+                            </td>
+                            <td class="px-6 py-4 text-sm text-gray-600 max-w-xs truncate"
+                                title="{{ item.translated_text }}">
+                                {{ item.translated_text }}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
         </div>
 
-        <div class="section">
-            <h2>Global Translation History</h2>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Time</th>
-                        <th>User</th>
-                        <th>Lang</th>
-                        <th>Original</th>
-                        <th>Translated</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for item in global_history %}
-                    <tr>
-                        <td>{{ item.timestamp }}</td>
-                        <td><strong>{{ item.username }}</strong></td>
-                        <td>{{ item.source_lang }} → {{ item.target_lang }}</td>
-                        <td>{{ item.original_text }}</td>
-                        <td>{{ item.translated_text }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
     </div>
 </body>
 
