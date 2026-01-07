@@ -157,265 +157,235 @@ def clear_history():
     history_db.clear_user_history(current_user.id)
     return jsonify({'message': 'History cleared'})
 
-@api_bp.route('/api/tutor-correct', methods=['POST'])
+import tutor_db
+
+@api_bp.route('/api/tutor/init', methods=['POST'])
 @login_required
-def tutor_correct():
-    """AI tutor using Groq for German corrections"""
+def init_tutor_session():
+    """Initialize or retrieve active session"""
+    user_id = current_user.id
+    data = request.json
+    task_type = data.get('task_type', 'free_chat')
+    
+    # Check for active session
+    session = tutor_db.get_active_session(user_id)
+    if not session:
+        session_id = tutor_db.create_session(user_id, task_type)
+    else:
+        session_id = session['id']
+        
+    # Get profile for personalized greeting
+    profile = tutor_db.get_profile(user_id)
+    
+    return jsonify({
+        'session_id': session_id,
+        'profile': profile,
+        'task_type': task_type
+    })
+
+@api_bp.route('/api/tutor/chat', methods=['POST'])
+@login_required
+def chat_with_tutor():
+    """Conversational Tutor with Memory"""
     try:
         data = request.json
-        student_text = data.get('student_text')
-        english_meaning = data.get('english_meaning')
+        user_message = data.get('message')
+        session_id = data.get('session_id')
         
-        if not student_text:
-            return jsonify({'error': 'No text provided'}), 400
+        if not user_message or not session_id:
+            desired_task = data.get('task_type', 'free_chat')
+            # Auto-create session if missing (fallback)
+            session_id = tutor_db.create_session(current_user.id, desired_task)
         
-        print(f"\n{'='*50}")
-        print(f"STUDENT: {student_text}")
-        print(f"ENGLISH: {english_meaning}")
+        # 1. Save User Message
+        tutor_db.add_message(session_id, 'user', user_message)
         
-        # Try Groq AI first (best quality)
-        if GROQ_API_KEY:
-            print("Using Groq AI...")
-            response = correct_with_groq(student_text, english_meaning)
-            if response:
-                print(f"CORRECTION: {response.get('correction', 'None')}")
-                print(f"{'='*50}\n")
-                return jsonify(response)
+        # 2. Build Context
+        history = tutor_db.get_session_history(session_id, limit=10)
+        profile = tutor_db.get_profile(current_user.id)
         
-        # Fallback to pattern matching
-        print("Using pattern matching fallback...")
-        response = correct_with_patterns(student_text, english_meaning)
-        print(f"{'='*50}\n")
-        return jsonify(response)
+        # 3. Call Groq
+        response_data = generate_tutor_response(user_message, history, profile)
         
+        # 4. Save Tutor Response
+        tutor_db.add_message(
+            session_id, 
+            'tutor', 
+            response_data['german_response'], 
+            correction=response_data.get('correction')
+        )
+        
+        # 5. Async: Update Profile (Simple implementation: just check for serious errors)
+        # In a real app, this might be a background task
+        if response_data.get('has_error'):
+            update_user_weaknesses(current_user.id, response_data['correction'])
+        
+        return jsonify(response_data)
+
     except Exception as e:
-        print(f"ERROR: {e}")
+        print(f"Tutor Error: {e}")
         return jsonify({'error': str(e)}), 500
 
-
-# --- Helper Functions ---
-
-def correct_with_groq(student_text, english_meaning):
-    """Use Groq AI with two-step verification to avoid false positives"""
+def generate_tutor_response(message, history, profile):
+    """
+    Generates a response using Groq that:
+    1. Acts as a German teacher
+    2. Gently corrects mistakes
+    3. Maintains conversation flow
+    """
     if not GROQ_API_KEY:
-        return None
+        return {
+            'german_response': "Entschuldigung, mein Gehirn (API Key) fehlt.",
+            'english_translation': "Sorry, my brain (API Key) is missing.",
+            'has_error': False
+        }
+
+    # Format history for LLM
+    conversation_text = ""
+    for msg in history:
+        role = "Student" if msg['role'] == 'user' else "Teacher"
+        conversation_text += f"{role}: {msg['content']}\n"
     
+    weaknesses = json.loads(profile['weaknesses']) if profile['weaknesses'] else []
+    level = profile['level']
+    
+    system_prompt = f"""You are a friendly, encouraging German Teacher. 
+Student Level: {level}
+Student Weaknesses: {', '.join(weaknesses)}
+
+GOALS:
+1. CORRECT grammar mistakes gently.
+2. KEEP THE CONVERSATION GOING. Ask questions back.
+3. Be concise.
+
+CRITICAL RULES (GRAMMAR):
+- IGNORE Capitalization errors (e.g. "hunger" instead of "Hunger" is OK).
+- IGNORE Punctuation errors (missing commas/periods is OK).
+- ONLY correct GRAMMAR (conjugation, word order, wrong words).
+
+INTERACTION FLOW FOR ERRORS:
+IF student makes a grammar mistake:
+1. Set "has_error": true
+2. Set "german_response": "Du meinst: [Corrected Sentence]"
+3. STOP. Do NOT ask a follow-up question yet. Allow student to repeat.
+
+IF student speaks correctly (or repeats your correction):
+1. Set "has_error": false
+2. Respond naturally to the content.
+
+FORMAT YOUR RESPONSE AS JSON:
+{{
+  "german_response": "Your reply",
+  "english_translation": "English meaning",
+  "has_error": true/false,
+  "correction": "Short explanation of error (if any), otherwise null"
+}}
+
+Example (Mistake):
+Student: "Ich brauche hilfe in einkaufen"
+Teacher JSON:
+{{
+  "german_response": "Du meinst: Ich brauche Hilfe beim Einkaufen.",
+  "english_translation": "You mean: I need help with shopping.",
+  "has_error": true,
+  "correction": "Use 'beim' (bei dem) for activities, not 'in'."
+}}
+
+Example (Correct/Follow-up):
+Student: "Ja, ich brauche Hilfe beim Einkaufen."
+Teacher JSON:
+{{
+  "german_response": "Das ist toll! Was möchtest du kaufen?",
+  "english_translation": "That is great! What would you like to buy?",
+  "has_error": false,
+  "correction": null
+}}
+"""
+
     try:
         url = "https://api.groq.com/openai/v1/chat/completions"
+        headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
         
-        # STEP 1: First ask if there's actually an error
-        check_prompt = f"""You are a strict German grammar checker.
-
-Student sentence: "{student_text}"
-
-CRITICAL: IGNORE ALL PUNCTUATION! Commas, periods, etc. are NOT grammar errors!
-
-Does this have a REAL grammar error?
-
-IGNORE (these are NOT errors):
-- Missing commas ✓ OK
-- Missing periods ✓ OK  
-- Missing quotes ✓ OK
-- Capitalization ✓ OK
-- Style ✓ OK
-
-ONLY flag these REAL errors:
-- Wrong verb conjugation: "ich brauchst" ✗
-- Wrong verb position: "ich Hilfe brauche" ✗
-- Wrong pronoun: "wie heißt mich" ✗
-- Nonsense: "ich bin 20 und 5 Jahre alt" ✗
-
-CORRECT examples (answer NO):
-- "hallo ich heiße Mustang wie geht's" ✓ NO ERROR
-- "mein Name ist Mustang und was ist dein Name" ✓ NO ERROR
-- "ich heiße Anna und wie heißt du" ✓ NO ERROR
-- "ich brauche Hilfe danke" ✓ NO ERROR
-
-WRONG examples (answer YES):
-- "ich Hilfe brauche" ✗ YES ERROR (verb position)
-- "ich brauchst Hilfe" ✗ YES ERROR (conjugation)
-
-If only punctuation is missing, answer: NO
-
-Answer ONLY: YES or NO"""
-
-        headers = {
-            "Authorization": f"Bearer {GROQ_API_KEY}",
-            "Content-Type": "application/json"
-        }
-        
-        # Step 1: Check if there's an error
-        payload1 = {
+        payload = {
             "model": "llama-3.3-70b-versatile",
-            "messages": [{"role": "user", "content": check_prompt}],
-            "temperature": 0.0,  # Zero creativity
-            "max_tokens": 10
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Conversation History:\n{conversation_text}\n\nStudent says: {message}"}
+            ],
+            "temperature": 0.7,
+            "response_format": {"type": "json_object"}
         }
         
-        response1 = requests.post(url, headers=headers, json=payload1, timeout=10)
+        response = requests.post(url, headers=headers, json=payload, timeout=15)
+        response.raise_for_status()
         
-        if response1.status_code != 200:
-            print(f"Groq API error: {response1.status_code}")
-            return None
+        result = response.json()
+        content = result['choices'][0]['message']['content']
+        parsed_response = json.loads(content)
         
-        result1 = response1.json()
-        has_error_check = result1['choices'][0]['message']['content'].strip().upper()
-        
-        print(f"Error check: {has_error_check}")
-        
-        # If NO error detected, return perfect
-        if "NO" in has_error_check or "KEIN" in has_error_check or "CORRECT" in has_error_check:
-            return {
-                'has_error': False,
-                'german_response': "Perfekt, mach weiter.!",
-                'english_translation': "Perfect, go ahead!",
-                'correction': None
-            }
-        
-        # STEP 2: Only if error found, ask for correction
-        correction_prompt = f"""Student said: "{student_text}"
-
-This has a grammar error. Give the correction.
-
-IMPORTANT: Start your German response with "Du meinst:" followed by the correct sentence.
-
-Example:
-If student says "ich Hilfe brauche", respond:
-GERMAN: Du meinst: "Ich brauche Hilfe"
-ENGLISH: You mean: "I need help"
-FIX: Verb must be in second position
-
-Format:
-GERMAN: Du meinst: [correct sentence in quotes]
-ENGLISH: You mean: [translation]
-FIX: [Brief one-line explanation of the error]"""
-
-        payload2 = {
-            "model": "llama-3.3-70b-versatile",
-            "messages": [{"role": "user", "content": correction_prompt}],
-            "temperature": 0.2,
-            "max_tokens": 300
-        }
-        
-        response2 = requests.post(url, headers=headers, json=payload2, timeout=15)
-        
-        if response2.status_code == 200:
-            result2 = response2.json()
-            content = result2['choices'][0]['message']['content']
-            
-            # Parse response
-            german = extract_line(content, "GERMAN:")
-            english = extract_line(content, "ENGLISH:")
-            fix = extract_line(content, "FIX:")
-            
-            # POST-PROCESSING: If correction only mentions punctuation, reject it
-            punctuation_keywords = ['comma', 'komma', 'period', 'punkt', 'punctuation', 'satzzeichen', 'capitalization', 'großschreibung']
-            if fix:
-                fix_lower = fix.lower()
-                mentions_punctuation = any(keyword in fix_lower for keyword in punctuation_keywords)
-                
-                # Check if the ONLY issue is punctuation
-                if mentions_punctuation:
-                    # Check if there are real grammar words in the fix
-                    grammar_keywords = ['verb', 'conjugation', 'position', 'pronoun', 'order', 'wortstellung', 'konjugation']
-                    has_grammar_issue = any(keyword in fix_lower for keyword in grammar_keywords)
-                    
-                    if not has_grammar_issue:
-                        # Only punctuation mentioned - reject this correction
-                        print("REJECTED: Correction only mentions punctuation")
-                        return {
-                            'has_error': False,
-                            'german_response': "Perfekt mach weiter.!",
-                            'english_translation': "Perfect go ahead!",
-                            'correction': None
-                        }
-            
-            if german and english:
-                return {
-                    'has_error': True,
-                    'german_response': german,
-                    'english_translation': english,
-                    'correction': fix if fix else None
-                }
+        # Apply filters
+        return refine_tutor_response(parsed_response, message)
         
     except Exception as e:
-        print(f"Groq error: {e}")
-    
-    return None
+        print(f"LLM Error: {e}")
+        return {
+            'german_response': "Entschuldigung, ich habe das nicht verstanden.",
+            'english_translation': "Sorry, I didn't understand that.",
+            'has_error': False
+        }
 
+def normalize_text(text):
+    """Remove punctuation and lowercase for comparison"""
+    import string
+    if not text: return ""
+    return text.lower().translate(str.maketrans('', '', string.punctuation)).strip()
 
-def extract_line(text, prefix):
-    """Extract line starting with prefix"""
-    try:
-        lines = text.split('\n')
-        for line in lines:
-            if line.strip().startswith(prefix):
-                return line.replace(prefix, '').strip()
-        return ""
-    except:
-        return ""
+def is_same_content(text1, text2):
+    return normalize_text(text1) == normalize_text(text2)
 
-
-def correct_with_patterns(student_text, english_meaning):
-    """Enhanced fallback pattern matching"""
-    
-    words = student_text.lower().split()
-    verbs = ['bin', 'bist', 'ist', 'sind', 'habe', 'hast', 'hat', 'haben', 
-             'brauche', 'brauchst', 'braucht', 'brauchen', 
-             'liebe', 'liebst', 'liebt', 'lieben', 'mag', 'magst']
-    subjects = ['ich', 'du', 'er', 'sie', 'es', 'wir', 'ihr']
-    
-    # Check 1: Word order (verb position)
-    if len(words) >= 2 and words[0] in subjects:
-        subject = words[0]
-        verb_pos = None
-        verb_word = None
+def refine_tutor_response(parsed_response, user_message):
+    """Pure function to apply filters to logic"""
+    # --- FILTER 1: Punctuation/Capitalization Check ---
+    if parsed_response.get('has_error') and parsed_response.get('correction'):
+        fix = parsed_response['correction'].lower()
+        punctuation_keywords = ['comma', 'komma', 'period', 'punkt', 'punctuation', 'satzzeichen', 'capitalization', 'großschreibung']
+        grammar_keywords = ['verb', 'conjugation', 'position', 'pronoun', 'order', 'wortstellung', 'konjugation', 'case', 'kasus', 'article', 'artikel', 'gender', 'genus']
         
-        for i, word in enumerate(words):
-            if word in verbs:
-                verb_pos = i
-                verb_word = word
-                break
+        is_punctuation_only = any(k in fix for k in punctuation_keywords)
+        has_grammar_content = any(k in fix for k in grammar_keywords)
         
-        if verb_word and verb_pos != 1:
-            return {
-                'has_error': True,
-                'german_response': f"Falsche Wortstellung! Das Verb '{verb_word}' muss an zweiter Stelle stehen. Richtig: '{subject} {verb_word} ...'",
-                'english_translation': f"Wrong word order! The verb '{verb_word}' must be in second position. Correct: '{subject} {verb_word} ...'",
-                'correction': f"In German, the verb must be in second position. Say: '{subject} {verb_word} ...' not '{student_text}'"
-            }
+        if is_punctuation_only and not has_grammar_content:
+            print(f"REJECTED PUNCTUATION CORRECTION: {fix}")
+            parsed_response['has_error'] = False
+            parsed_response['correction'] = None
+            parsed_response['english_translation'] = "That is correct! Tell me more."
     
-    # Check 2: Multiple pronouns
-    if 'mich' in words and 'dich' in words:
-        return {
-            'has_error': True,
-            'german_response': "Zu viele Pronomen! Für 'I love you' sag nur: 'Ich liebe dich' (ohne 'mich').",
-            'english_translation': "Too many pronouns! For 'I love you' just say: 'Ich liebe dich' (without 'mich').",
-            'correction': "Use 'Ich liebe dich' (I love you) OR 'Du liebst mich' (You love me) - not both pronouns together."
-        }
+    # --- FILTER 2: Content Equality Check ---
+    if parsed_response.get('has_error') and "Du meinst:" in parsed_response.get('german_response', ''):
+        # Extract sentence after "Du meinst:"
+        try:
+            corrected_part = parsed_response['german_response'].split("Du meinst:", 1)[1].strip()
+            if is_same_content(user_message, corrected_part):
+                print(f"REJECTED IDENTICAL CONTENT CORRECTION: {corrected_part}")
+                parsed_response['has_error'] = False
+                parsed_response['correction'] = None
+                parsed_response['german_response'] = f"Genau! {corrected_part}" 
+                parsed_response['english_translation'] = f"Exactly! {corrected_part}"
+        except IndexError:
+            pass # Malformed "Du meinst" response, skip check
+
+    return parsed_response
+
+def update_user_weaknesses(user_id, correction):
+    """Simple logic to add weakness to profile"""
+    if not correction: 
+        return
+        
+    profile = tutor_db.get_profile(user_id)
+    weaknesses = json.loads(profile['weaknesses'])
     
-    # Check 3: Wrong conjugation
-    if "ich brauchst" in student_text.lower():
-        return {
-            'has_error': True,
-            'german_response': "Falsch! Bei 'ich' sagst du 'brauche', nicht 'brauchst'. Richtig: 'ich brauche'.",
-            'english_translation': "Wrong! With 'ich' you say 'brauche', not 'brauchst'. Correct: 'ich brauche'.",
-            'correction': "Use 'ich brauche' not 'ich brauchst'. The verb ending '-st' is for 'du'."
-        }
-    
-    # Check 4: wie heißt mich
-    if "wie heißt mich" in student_text.lower() or "wie heißt mir" in student_text.lower():
-        return {
-            'has_error': True,
-            'german_response': "Du meinst 'wie heißt du?' wenn du jemanden nach seinem Namen fragst. 'Mich' passt hier nicht.",
-            'english_translation': "You mean 'what's your name?' when asking someone's name. 'Mich' doesn't fit here.",
-            'correction': "Use 'wie heißt du?' to ask someone's name, not 'wie heißt mich'"
-        }
-    
-    # Default: Suggest checking
-    return {
-        'has_error': False,
-        'german_response': "Hmm, die Struktur wirkt ungewöhnlich. Versuch die Reihenfolge: Subjekt + Verb + Objekt.",
-        'english_translation': "Hmm, the structure seems unusual. Try the order: Subject + Verb + Object.",
-        'correction': "Check German word order rules: Subject-Verb-Object for main clauses."
-    }
+    # very basic: just add the correction text if it's short
+    # In reality, you'd want to categorize this (e.g. "Dative Case")
+    if len(weaknesses) < 5: 
+        weaknesses.append(correction[:50]) # keep it short
+        tutor_db.update_profile(user_id, weaknesses=weaknesses)

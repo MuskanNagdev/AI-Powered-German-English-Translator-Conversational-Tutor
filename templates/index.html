@@ -345,13 +345,11 @@
             document.getElementById(tabName + '-tab').classList.remove('hidden');
 
             if (tabName === 'tutor') {
-                setTimeout(speakTutorWelcome, 500);
+                initTutorSession();
             }
         }
 
-        // ... (Keep existing JS logic but adapted for new IDs if changed) ...
-        // Re-implementing the JS logic cleanly to ensure it works with the new layout
-
+        // --- Core Variables ---
         let isEnglishToGerman = true;
         let isRecording = false;
         let recognition = null;
@@ -360,13 +358,12 @@
         let currentTargetLang = 'de';
         let dialogCallback = null;
         let hasSpokenWelcome = false;
+        let currentSessionId = null;
 
         // Shared Helper: Update Status
         function updateStatus(message, type) {
             const el = document.getElementById('status');
             el.textContent = message;
-
-            // Reset classes
             el.className = 'text-center py-3 px-4 rounded-xl font-bold text-sm mb-6 transition-all duration-300 border';
 
             if (type === 'recording') {
@@ -378,7 +375,7 @@
             } else if (type === 'success') {
                 el.classList.add('bg-green-50', 'text-green-700', 'border-green-200');
             } else {
-                el.classList.add('bg-green-50', 'text-green-700', 'border-green-100'); // Ready
+                el.classList.add('bg-green-50', 'text-green-700', 'border-green-100');
             }
         }
 
@@ -395,12 +392,10 @@
                 targetEl.textContent = 'English 🇬🇧';
             }
 
-            // Reset fields
             document.getElementById('original-text').value = '';
             document.getElementById('translated-text').value = '';
             document.getElementById('translate-btn').disabled = true;
             document.getElementById('play-btn').disabled = true;
-
             updateStatus('Language switched! Ready.', 'ready');
         }
 
@@ -413,26 +408,19 @@
                 recognition.lang = isEnglishToGerman ? 'en-US' : 'de-DE';
 
                 recognition.onresult = (event) => {
-                    let interim = '';
                     let final = '';
                     for (let i = event.resultIndex; i < event.results.length; ++i) {
                         if (event.results[i].isFinal) {
                             final += event.results[i][0].transcript + ' ';
-                        } else {
-                            interim += event.results[i][0].transcript;
                         }
                     }
-
                     const box = document.getElementById('original-text');
                     if (final) {
                         box.value += final;
                         document.getElementById('translate-btn').disabled = false;
                     }
                 };
-
-                recognition.onend = () => {
-                    if (isRecording) recognition.start();
-                };
+                recognition.onend = () => { if (isRecording) recognition.start(); };
             }
         }
 
@@ -441,10 +429,8 @@
             isRecording = true;
             document.getElementById('record-btn').classList.add('hidden');
             document.getElementById('stop-btn').classList.remove('hidden');
-            document.getElementById('stop-btn').classList.add('flex'); // Helper for flex display
-
+            document.getElementById('stop-btn').classList.add('flex');
             updateStatus('🔴 Listening...', 'recording');
-
             initializeSpeechRec();
             if (recognition) recognition.start();
         }
@@ -454,7 +440,6 @@
             document.getElementById('record-btn').classList.remove('hidden');
             document.getElementById('stop-btn').classList.add('hidden');
             document.getElementById('stop-btn').classList.remove('flex');
-
             if (recognition) recognition.stop();
             updateStatus('✅ Recorded. Click Translate.', 'success');
         }
@@ -462,7 +447,6 @@
         async function translateText() {
             const text = document.getElementById('original-text').value;
             if (!text.trim()) return;
-
             updateStatus('🔄 Translating...', 'processing');
 
             try {
@@ -475,7 +459,6 @@
                         target_lang: isEnglishToGerman ? 'de' : 'en'
                     })
                 });
-
                 const data = await res.json();
                 if (data.error) throw new Error(data.error);
 
@@ -483,12 +466,9 @@
                 currentTranslation = data.translation;
                 currentTargetLang = isEnglishToGerman ? 'de' : 'en';
                 document.getElementById('play-btn').disabled = false;
-
                 updateStatus('✅ Done!', 'success');
                 addToHistory(data.history_entry);
-
                 playTranslation();
-
             } catch (e) {
                 updateStatus('❌ Error: ' + e.message, 'error');
             }
@@ -505,9 +485,7 @@
                 const blob = await res.blob();
                 const audio = new Audio(URL.createObjectURL(blob));
                 audio.play();
-            } catch (e) {
-                console.error(e);
-            }
+            } catch (e) { console.error(e); }
         }
 
         // --- History ---
@@ -516,7 +494,6 @@
             const data = await res.json();
             const list = document.getElementById('history-list');
             list.innerHTML = '';
-
             if (data.history && data.history.length > 0) {
                 data.history.reverse().forEach(addToHistory);
             } else {
@@ -527,7 +504,6 @@
         function addToHistory(item) {
             const list = document.getElementById('history-list');
             if (list.querySelector('.no-history')) list.innerHTML = '';
-
             const html = `
                 <div class="p-4 hover:bg-gray-50 transition-colors">
                     <div class="flex justify-between text-xs text-gray-400 font-bold uppercase mb-2">
@@ -556,36 +532,37 @@
             dialogCallback = cb;
             document.getElementById('dialog-overlay').classList.remove('hidden');
         }
-        function closeDialog() {
-            document.getElementById('dialog-overlay').classList.add('hidden');
-        }
-        function confirmDialog() {
-            if (dialogCallback) dialogCallback();
-            closeDialog();
-        }
+        function closeDialog() { document.getElementById('dialog-overlay').classList.add('hidden'); }
+        function confirmDialog() { if (dialogCallback) dialogCallback(); closeDialog(); }
 
-        // --- Tutor ---
-        async function speakTutorWelcome() {
-            if (hasSpokenWelcome) return;
-            hasSpokenWelcome = true;
+        // --- AI TUTOR (Conversational) ---
 
-            document.getElementById('tutor-avatar').classList.add('avatar-speaking');
+        async function initTutorSession() {
+            if (currentSessionId) return; // Already initialized
 
-            // Just simulate for now or call API if needed
-            const welcome = "Hallo! Ich bin dein Deutschlehrer.";
             try {
-                const res = await fetch('/api/text-to-speech', {
+                const res = await fetch('/api/tutor/init', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text: welcome, lang: 'de' })
+                    body: JSON.stringify({ task_type: 'free_chat' })
                 });
-                const blob = await res.blob();
-                const audio = new Audio(URL.createObjectURL(blob));
-                audio.onended = () => document.getElementById('tutor-avatar').classList.remove('avatar-speaking');
-                audio.play();
+                const data = await res.json();
+                currentSessionId = data.session_id;
+
+                // Only greet if it's the very first time open
+                if (!hasSpokenWelcome) {
+                    speakTutorWelcome();
+                }
             } catch (e) {
-                document.getElementById('tutor-avatar').classList.remove('avatar-speaking');
+                console.error("Failed to init tutor session", e);
             }
+        }
+
+        async function speakTutorWelcome() {
+            hasSpokenWelcome = true;
+            document.getElementById('tutor-avatar').classList.add('avatar-speaking');
+            const welcome = "Hallo! Ich bin dein Deutschlehrer.";
+            playTutorAudio(welcome);
         }
 
         function startTutorRecording() {
@@ -604,35 +581,12 @@
                 tutorRecognition.onresult = async (event) => {
                     const text = event.results[0][0].transcript;
                     stopTutorRecording();
+
+                    // User message
                     addTutorMessage('student', text);
 
-                    // Call API
-                    const loadingId = addTutorMessage('tutor', 'Thinking...');
-
-                    try {
-                        const res = await fetch('/api/tutor-correct', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ student_text: text, english_meaning: "User input" })
-                        });
-                        const data = await res.json();
-
-                        // Remove loading message
-                        document.getElementById(loadingId).remove();
-
-                        if (data.has_error) {
-                            addTutorMessage('tutor', data.german_response, data.english_translation, data.correction);
-                            playTutorAudio(data.german_response);
-                        } else {
-                            addTutorMessage('tutor', data.german_response || "Das war perfekt!", data.english_translation || "That was perfect!");
-                            playTutorAudio(data.german_response || "Das war perfekt!");
-                        }
-
-                    } catch (e) {
-                        document.getElementById(loadingId).innerText = "Error connecting to tutor.";
-                    }
+                    sendMessageToTutor(text);
                 };
-
                 tutorRecognition.start();
             }
         }
@@ -646,11 +600,40 @@
             if (tutorRecognition) tutorRecognition.stop();
         }
 
+        async function sendMessageToTutor(message) {
+            const loadingId = addTutorMessage('tutor', 'Thinking...');
+
+            try {
+                const res = await fetch('/api/tutor/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        message: message,
+                        session_id: currentSessionId
+                    })
+                });
+                const data = await res.json();
+
+                document.getElementById(loadingId).remove();
+
+                if (data.german_response) {
+                    addTutorMessage('tutor', data.german_response, data.english_translation, data.correction);
+                    playTutorAudio(data.german_response);
+                } else {
+                    addTutorMessage('tutor', "Error: No response");
+                }
+
+            } catch (e) {
+                document.getElementById(loadingId).innerText = "Error connecting to tutor.";
+                console.error(e);
+            }
+        }
+
         function addTutorMessage(role, german, english = null, correction = null) {
             const area = document.getElementById('conversation-area');
             const id = 'msg-' + Date.now();
-
             let content = '';
+
             if (role === 'tutor') {
                 content = `
                     <div id="${id}" class="flex gap-3 fade-in mb-4">
@@ -661,8 +644,7 @@
                             ${english ? `<p class="text-gray-400 text-sm italic">${english}</p>` : ''}
                             ${correction ? `<div class="mt-3 bg-amber-50 text-amber-800 p-3 rounded-xl text-sm border border-amber-100 flex gap-2"><span class="text-lg">💡</span> <div>${correction}</div></div>` : ''}
                         </div>
-                    </div>
-                `;
+                    </div>`;
             } else {
                 content = `
                     <div id="${id}" class="flex gap-3 fade-in mb-4 flex-row-reverse">
@@ -670,10 +652,8 @@
                         <div class="bg-indigo-600 p-4 rounded-2xl rounded-tr-none shadow-md max-w-[85%] text-white">
                             <p class="text-lg">${german}</p>
                         </div>
-                    </div>
-                `;
+                    </div>`;
             }
-
             area.insertAdjacentHTML('beforeend', content);
             area.scrollTop = area.scrollHeight;
             return id;
@@ -690,22 +670,18 @@
                 const blob = await res.blob();
                 const audio = new Audio(URL.createObjectURL(blob));
                 audio.onended = () => document.getElementById('tutor-avatar').classList.remove('avatar-speaking');
-                audio.play();
+                await audio.play();
             } catch (e) {
                 document.getElementById('tutor-avatar').classList.remove('avatar-speaking');
             }
         }
 
-        // Init
         document.addEventListener('DOMContentLoaded', () => {
             loadHistory();
-
-            // Input listener for manual typing
             document.getElementById('original-text').addEventListener('input', (e) => {
                 document.getElementById('translate-btn').disabled = e.target.value.trim().length === 0;
             });
         });
-
     </script>
 </body>
 
